@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="TradeGuard order integrity workspace for signing and verifying stock order records.">
+  <title>TradeGuard | Order Integrity</title>
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <script src="assets/js/app.js" defer></script>
+</head>
+<body data-page="home">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="index.html" aria-label="TradeGuard home">
+      <span class="brand-mark" aria-hidden="true">TG</span>
+      <span>TradeGuard <span class="brand-subtitle">Order integrity platform</span></span>
+    </a>
+    <nav class="primary-nav" aria-label="Main navigation">
+      <a href="index.html" aria-current="page">Overview</a>
+      <a href="pages/register.html">Register</a>
+      <a href="pages/orders.html">Orders &amp; events</a>
+      <a href="pages/verify.html">Verify order</a>
+    </nav>
+  </header>
+
+  <main id="main-content">
+    <section class="hero page-width">
+      <div class="hero-copy">
+        <p class="eyebrow">Order integrity workspace</p>
+        <h1>Confidence starts with verifiable order records.</h1>
+        <p class="hero-intro">Create signed stock order records, review activity, and verify that order details have not changed.</p>
+        <div class="button-row">
+          <a class="button button-primary" href="pages/orders.html">Open order workspace</a>
+          <a class="button button-secondary" href="pages/verify.html">Verify an order</a>
+        </div>
+        <p class="notice"><strong>Paper trading environment:</strong> orders are not routed to an exchange or brokerage.</p>
+      </div>
+      <figure class="hero-visual">
+        <img src="assets/images/market-chart.svg" alt="Illustration of a rising and falling stock chart protected by a shield">
+        <figcaption>Each order record is digitally signed before it is saved.</figcaption>
+      </figure>
+    </section>
+
+    <section class="page-width section-block" aria-labelledby="steps-heading">
+      <div class="section-heading">
+        <p class="eyebrow">Order verification</p>
+        <h2 id="steps-heading">A clear path from order to verification</h2>
+      </div>
+      <ol class="step-list">
+        <li><span class="step-number">01</span><h3>Create</h3><p>Enter a buy or sell order record with a stock symbol, quantity, and price.</p></li>
+        <li><span class="step-number">02</span><h3>Sign</h3><p>The browser signs a consistent version of the order using RSA-PSS and SHA-256.</p></li>
+        <li><span class="step-number">03</span><h3>Verify</h3><p>Check the signature later. Changing signed order details makes verification fail.</p></li>
+      </ol>
+    </section>
+
+    <section class="page-width section-block resources-section" aria-labelledby="resources-heading">
+      <div class="section-heading">
+        <p class="eyebrow">Reference library</p>
+        <h2 id="resources-heading">Market and security resources</h2>
+        <p>Selected references for understanding order types and the signature technology used in this workspace.</p>
+      </div>
+      <div class="resource-grid">
+        <article class="resource-card">
+          <span class="resource-category">Markets</span>
+          <h3>Stock order types</h3>
+          <p>Learn how market, limit, and stop orders work and what trade-offs they involve.</p>
+          <a href="https://www.finra.org/investors/investing/investment-products/stocks/order-types" target="_blank" rel="noopener noreferrer">Read FINRA's order guide <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="resource-card">
+          <span class="resource-category">Technology</span>
+          <h3>Digital signatures in this app</h3>
+          <p>Explore the browser cryptography API used to create and verify signed order records.</p>
+          <a href="https://developer.mozilla.org/en-US/docs/Web/API/Web_Crypto_API" target="_blank" rel="noopener noreferrer">Read the Web Crypto API guide <span aria-hidden="true">↗</span></a>
+        </article>
+        <article class="resource-card">
+          <span class="resource-category">Project guide</span>
+          <h3>Order integrity workflow</h3>
+          <p>Review the workspace steps, setup instructions, file map, and project limitations.</p>
+          <a href="README.md">Open the project guide</a>
+        </article>
+        <article class="resource-card resource-visual">
+          <span class="resource-category">Visual reference</span>
+          <h3>Order protection overview</h3>
+          <img class="media-image" src="assets/images/market-chart.svg" alt="A sample stock chart with a shield icon">
+          <p>A visual summary of the market-record and signature concepts.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="page-width section-block getting-started" aria-labelledby="start-heading">
+      <h2 id="start-heading">Get started</h2>
+      <ul class="link-list">
+        <li><a href="pages/register.html">Create your profile</a> to personalize this workspace.</li>
+        <li><a href="pages/orders.html">Review order records</a> and recent activity.</li>
+        <li><a href="pages/verify.html">Verify a signature</a> on any saved order.</li>
+      </ul>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>TradeGuard · Paper trading environment · No live brokerage connection</p>
+    <a href="README.md">Project setup and file guide</a>
+  </footer>
+  <div class="app-message" id="app-message" role="status" aria-live="polite"></div>
+</body>
+</html>
