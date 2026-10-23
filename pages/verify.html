@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Verify the digital signature on a stock order record.">
+  <title>Verify Order | TradeGuard</title>
+  <link rel="stylesheet" href="../assets/css/styles.css">
+  <script src="../assets/js/app.js" defer></script>
+</head>
+<body data-page="verify">
+  <a class="skip-link" href="#main-content">Skip to content</a>
+  <header class="site-header">
+    <a class="brand" href="../index.html" aria-label="TradeGuard home">
+      <span class="brand-mark" aria-hidden="true">TG</span>
+      <span>TradeGuard <span class="brand-subtitle">Order integrity platform</span></span>
+    </a>
+    <nav class="primary-nav" aria-label="Main navigation">
+      <a href="../index.html">Overview</a>
+      <a href="register.html">Register</a>
+      <a href="orders.html">Orders &amp; events</a>
+      <a href="verify.html" aria-current="page">Verify order</a>
+    </nav>
+  </header>
+  <main id="main-content" class="page-width page-main">
+    <header class="page-title">
+      <p class="eyebrow">Signature check</p>
+      <h1>Verify an order</h1>
+      <p>Enter an order ID to check its signature against the signed order fields and stored public key.</p>
+    </header>
+    <section class="panel form-panel" aria-labelledby="verify-heading">
+      <h2 id="verify-heading">Check order signature</h2>
+      <form id="verify-form">
+        <div class="form-field">
+          <label for="verify-order-id">Order ID</label>
+          <input id="verify-order-id" name="orderId" type="text" maxlength="80" required>
+        </div>
+        <button class="button button-primary" type="submit">Verify signature</button>
+      </form>
+      <div class="verification-result" id="verification-result" aria-live="polite" aria-atomic="true"></div>
+    </section>
+    <section class="section-block info-panel" aria-labelledby="interpret-heading">
+      <h2 id="interpret-heading">Understanding the result</h2>
+      <ul class="link-list">
+        <li><strong>Valid:</strong> the order fields match the data covered by the signature.</li>
+        <li><strong>Invalid:</strong> the signed fields changed, the signature is wrong, or the public key does not match.</li>
+      </ul>
+      <p>Verification checks whether the signed fields match the saved record. It does not authenticate the person who created the key or protect records stored in this browser.</p>
+      <a href="orders.html">Return to orders and events</a>
+    </section>
+  </main>
+  <footer class="site-footer">
+    <p>TradeGuard · Paper trading environment · No live brokerage connection</p>
+    <a href="../README.md">Project setup and file guide</a>
+  </footer>
+  <div class="app-message" id="app-message" role="status" aria-live="polite"></div>
+</body>
+</html>
