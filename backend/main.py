@@ -17,10 +17,17 @@ from fastapi import Depends, FastAPI, Header, HTTPException, status
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+from pymongo import ASCENDING, MongoClient
+from pymongo.database import Database
+from pymongo.errors import DuplicateKeyError
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATABASE_PATH = Path(os.environ.get("TRADEGUARD_DB", Path(__file__).with_name("tradeguard.sqlite3")))
+MONGODB_URI = os.environ.get("TRADEGUARD_MONGODB_URI", "mongodb://localhost:27017")
+MONGODB_DATABASE = os.environ.get("TRADEGUARD_MONGODB_DATABASE", "tradeguard")
+SQLITE_MIGRATION_PATH = Path(os.environ.get("TRADEGUARD_DB", Path(__file__).with_name("tradeguard.sqlite3")))
 SESSION_LIFETIME = timedelta(days=7)
+mongo_client: MongoClient | None = None
+database: Database | None = None
 
 
 class RegisterRequest(BaseModel):
@@ -51,58 +58,102 @@ class OrderRequest(BaseModel):
     signature: str = Field(min_length=1, max_length=2048)
 
 
-def connect_db() -> sqlite3.Connection:
-    connection = sqlite3.connect(DATABASE_PATH)
-    connection.row_factory = sqlite3.Row
-    connection.execute("PRAGMA foreign_keys = ON")
-    return connection
+def get_database() -> Database:
+    if database is None:
+        raise RuntimeError("MongoDB has not been initialized.")
+    return database
+
+
+def migrate_sqlite_data(target: Database) -> None:
+    if not SQLITE_MIGRATION_PATH.exists():
+        return
+
+    with sqlite3.connect(SQLITE_MIGRATION_PATH) as connection:
+        connection.row_factory = sqlite3.Row
+        tables = {
+            row["name"]
+            for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
+        }
+        for row in connection.execute("SELECT * FROM users").fetchall() if "users" in tables else []:
+            target.users.update_one(
+                {"_id": str(row["id"])},
+                {
+                    "$setOnInsert": {
+                        "full_name": row["full_name"],
+                        "email": row["email"].strip().lower(),
+                        "password_salt": row["password_salt"],
+                        "password_hash": row["password_hash"],
+                        "registered_at": row["registered_at"],
+                    }
+                },
+                upsert=True,
+            )
+        for row in connection.execute("SELECT * FROM sessions").fetchall() if "sessions" in tables else []:
+            target.sessions.update_one(
+                {"_id": row["token_hash"]},
+                {
+                    "$setOnInsert": {
+                        "user_id": str(row["user_id"]),
+                        "expires_at": datetime.fromisoformat(row["expires_at"]),
+                    }
+                },
+                upsert=True,
+            )
+        for row in connection.execute("SELECT * FROM orders").fetchall() if "orders" in tables else []:
+            target.orders.update_one(
+                {"_id": row["order_id"]},
+                {
+                    "$setOnInsert": {
+                        "orderId": row["order_id"],
+                        "user_id": str(row["user_id"]),
+                        "side": row["side"],
+                        "symbol": row["symbol"],
+                        "quantity": row["quantity"],
+                        "price": row["price"],
+                        "createdAt": row["created_at"],
+                        "publicKey": json.loads(row["public_key"]),
+                        "signature": row["signature"],
+                    }
+                },
+                upsert=True,
+            )
+        for row in connection.execute("SELECT * FROM events").fetchall() if "events" in tables else []:
+            target.events.update_one(
+                {"_id": row["event_id"]},
+                {
+                    "$setOnInsert": {
+                        "eventId": row["event_id"],
+                        "user_id": str(row["user_id"]),
+                        "orderId": row["order_id"],
+                        "type": row["type"],
+                        "details": row["details"],
+                        "createdAt": row["created_at"],
+                    }
+                },
+                upsert=True,
+            )
 
 
 def initialize_database() -> None:
-    DATABASE_PATH.parent.mkdir(parents=True, exist_ok=True)
-    with connect_db() as connection:
-        connection.executescript(
-            """
-            CREATE TABLE IF NOT EXISTS users (
-                id INTEGER PRIMARY KEY,
-                full_name TEXT NOT NULL,
-                email TEXT NOT NULL UNIQUE COLLATE NOCASE,
-                password_salt TEXT NOT NULL,
-                password_hash TEXT NOT NULL,
-                registered_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS sessions (
-                token_hash TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                expires_at TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS orders (
-                order_id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                side TEXT NOT NULL CHECK (side IN ('BUY', 'SELL')),
-                symbol TEXT NOT NULL,
-                quantity INTEGER NOT NULL CHECK (quantity > 0),
-                price REAL NOT NULL CHECK (price > 0),
-                created_at TEXT NOT NULL,
-                public_key TEXT NOT NULL,
-                signature TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS events (
-                event_id TEXT PRIMARY KEY,
-                user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-                order_id TEXT NOT NULL,
-                type TEXT NOT NULL,
-                details TEXT NOT NULL,
-                created_at TEXT NOT NULL
-            );
-            """
-        )
+    global mongo_client, database
+    mongo_client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+    mongo_client.admin.command("ping")
+    database = mongo_client[MONGODB_DATABASE]
+    database.users.create_index([("email", ASCENDING)], unique=True)
+    database.orders.create_index([("user_id", ASCENDING), ("createdAt", ASCENDING)])
+    database.events.create_index([("user_id", ASCENDING), ("createdAt", ASCENDING)])
+    database.sessions.create_index([("expires_at", ASCENDING)], expireAfterSeconds=0)
+    migrate_sqlite_data(database)
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     initialize_database()
-    yield
+    try:
+        yield
+    finally:
+        if mongo_client is not None:
+            mongo_client.close()
 
 
 app = FastAPI(title="TradeGuard API", version="1.0.0", lifespan=lifespan)
@@ -123,56 +174,55 @@ def password_matches(password: str, salt: str, expected_hash: str) -> bool:
     return secrets.compare_digest(actual_hash, expected_hash)
 
 
-def public_user(row: sqlite3.Row) -> dict[str, str]:
+def public_user(row: dict) -> dict[str, str]:
     return {"fullName": row["full_name"], "email": row["email"]}
 
 
-def create_session(user_id: int) -> str:
+def create_session(user_id: str) -> str:
     token = secrets.token_urlsafe(32)
-    expires_at = (datetime.now(timezone.utc) + SESSION_LIFETIME).isoformat()
-    with connect_db() as connection:
-        connection.execute(
-            "INSERT INTO sessions (token_hash, user_id, expires_at) VALUES (?, ?, ?)",
-            (hashlib.sha256(token.encode("ascii")).hexdigest(), user_id, expires_at),
-        )
+    get_database().sessions.insert_one(
+        {
+            "_id": hashlib.sha256(token.encode("ascii")).hexdigest(),
+            "user_id": user_id,
+            "expires_at": datetime.now(timezone.utc) + SESSION_LIFETIME,
+        }
+    )
     return token
 
 
-def authenticated_user(authorization: Annotated[str | None, Header()] = None) -> sqlite3.Row:
+def authenticated_user(authorization: Annotated[str | None, Header()] = None) -> dict:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Sign in to continue.")
     token = authorization.removeprefix("Bearer ").strip()
     token_hash = hashlib.sha256(token.encode("utf-8")).hexdigest()
-    with connect_db() as connection:
-        row = connection.execute(
-            """SELECT users.* FROM sessions
-               JOIN users ON users.id = sessions.user_id
-               WHERE sessions.token_hash = ? AND sessions.expires_at > ?""",
-            (token_hash, datetime.now(timezone.utc).isoformat()),
-        ).fetchone()
-    if row is None:
+    db = get_database()
+    session = db.sessions.find_one(
+        {"_id": token_hash, "expires_at": {"$gt": datetime.now(timezone.utc)}}
+    )
+    user = db.users.find_one({"_id": session["user_id"]}) if session else None
+    if user is None:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Your session expired. Please sign in again.")
-    return row
+    return user
 
 
-def canonical_order(order: OrderRequest | sqlite3.Row) -> bytes:
+def canonical_order(order: OrderRequest | dict) -> bytes:
     price = round(float(order.price if isinstance(order, OrderRequest) else order["price"]), 2)
     if price.is_integer():
         price = int(price)
     fields = {
-        "orderId": order.orderId if isinstance(order, OrderRequest) else order["order_id"],
+        "orderId": order.orderId if isinstance(order, OrderRequest) else order["orderId"],
         "side": order.side if isinstance(order, OrderRequest) else order["side"],
         "symbol": (order.symbol if isinstance(order, OrderRequest) else order["symbol"]).upper(),
         "quantity": order.quantity if isinstance(order, OrderRequest) else order["quantity"],
         "price": price,
-        "createdAt": order.createdAt if isinstance(order, OrderRequest) else order["created_at"],
+        "createdAt": order.createdAt if isinstance(order, OrderRequest) else order["createdAt"],
     }
     return json.dumps(fields, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
 
 
-def verify_signature(order: OrderRequest | sqlite3.Row) -> bool:
+def verify_signature(order: OrderRequest | dict) -> bool:
     try:
-        public_key = order.publicKey.model_dump() if isinstance(order, OrderRequest) else json.loads(order["public_key"])
+        public_key = order.publicKey.model_dump() if isinstance(order, OrderRequest) else order["publicKey"]
         signature_value = order.signature if isinstance(order, OrderRequest) else order["signature"]
 
         def decode_jwk(value: str) -> int:
@@ -197,30 +247,38 @@ def verify_signature(order: OrderRequest | sqlite3.Row) -> bool:
         return False
 
 
-def record_event(user_id: int, order_id: str, event_type: str, details: str) -> None:
-    with connect_db() as connection:
-        connection.execute(
-            "INSERT INTO events (event_id, user_id, order_id, type, details, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-            (secrets.token_hex(16), user_id, order_id, event_type, details, utc_now()),
-        )
+def record_event(user_id: str, order_id: str, event_type: str, details: str) -> None:
+    event_id = secrets.token_hex(16)
+    get_database().events.insert_one(
+        {
+            "_id": event_id,
+            "eventId": event_id,
+            "user_id": user_id,
+            "orderId": order_id,
+            "type": event_type,
+            "details": details,
+            "createdAt": utc_now(),
+        }
+    )
 
 
-def serialize_order(row: sqlite3.Row) -> dict:
+def serialize_order(row: dict) -> dict:
     return {
-        "orderId": row["order_id"],
+        "orderId": row["orderId"],
         "side": row["side"],
         "symbol": row["symbol"],
         "quantity": row["quantity"],
         "price": row["price"],
-        "createdAt": row["created_at"],
-        "publicKey": json.loads(row["public_key"]),
+        "createdAt": row["createdAt"],
+        "publicKey": row["publicKey"],
         "signature": row["signature"],
     }
 
 
 @app.get("/api/health")
 def health() -> dict[str, str]:
-    return {"status": "ok"}
+    get_database().command("ping")
+    return {"status": "ok", "database": "mongodb"}
 
 
 @app.post("/api/auth/register", status_code=status.HTTP_201_CREATED)
@@ -232,75 +290,61 @@ def register(payload: RegisterRequest) -> dict:
     salt, password_hash = hash_password(payload.password)
     now = utc_now()
     try:
-        with connect_db() as connection:
-            cursor = connection.execute(
-                "INSERT INTO users (full_name, email, password_salt, password_hash, registered_at) VALUES (?, ?, ?, ?, ?)",
-                (full_name, email, salt, password_hash, now),
-            )
-            user_id = cursor.lastrowid
-            user = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
-    except sqlite3.IntegrityError as error:
-        if "users.email" in str(error):
-            raise HTTPException(status_code=409, detail="An account with this email already exists.") from error
-        raise
+        user_id = secrets.token_hex(16)
+        user = {
+            "_id": user_id,
+            "full_name": full_name,
+            "email": email,
+            "password_salt": salt,
+            "password_hash": password_hash,
+            "registered_at": now,
+        }
+        get_database().users.insert_one(user)
+    except DuplicateKeyError as error:
+        raise HTTPException(status_code=409, detail="An account with this email already exists.") from error
     return {"token": create_session(user_id), "user": public_user(user)}
 
 
 @app.post("/api/auth/login")
 def login(payload: LoginRequest) -> dict:
     email = payload.email.strip().lower()
-    with connect_db() as connection:
-        user = connection.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()
+    user = get_database().users.find_one({"email": email})
     if user is None or not password_matches(payload.password, user["password_salt"], user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email or password is incorrect.")
-    return {"token": create_session(user["id"]), "user": public_user(user)}
+    return {"token": create_session(user["_id"]), "user": public_user(user)}
 
 
 @app.get("/api/auth/me")
-def get_me(user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> dict:
+def get_me(user: Annotated[dict, Depends(authenticated_user)]) -> dict:
     return {"user": public_user(user)}
 
 
 @app.post("/api/auth/logout", status_code=status.HTTP_204_NO_CONTENT)
-def logout(user: Annotated[sqlite3.Row, Depends(authenticated_user)], authorization: Annotated[str, Header()]) -> None:
+def logout(user: Annotated[dict, Depends(authenticated_user)], authorization: Annotated[str, Header()]) -> None:
     token = authorization.removeprefix("Bearer ").strip()
-    with connect_db() as connection:
-        connection.execute("DELETE FROM sessions WHERE token_hash = ?", (hashlib.sha256(token.encode()).hexdigest(),))
+    get_database().sessions.delete_one({"_id": hashlib.sha256(token.encode()).hexdigest()})
 
 
 @app.get("/api/orders")
-def list_orders(user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> list[dict]:
-    with connect_db() as connection:
-        rows = connection.execute(
-            "SELECT * FROM orders WHERE user_id = ? ORDER BY created_at DESC", (user["id"],)
-        ).fetchall()
+def list_orders(user: Annotated[dict, Depends(authenticated_user)]) -> list[dict]:
+    rows = get_database().orders.find({"user_id": user["_id"]}).sort("createdAt", -1)
     return [serialize_order(row) for row in rows]
 
 
 @app.post("/api/orders", status_code=status.HTTP_201_CREATED)
-def create_order(payload: OrderRequest, user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> dict:
+def create_order(payload: OrderRequest, user: Annotated[dict, Depends(authenticated_user)]) -> dict:
     if not verify_signature(payload):
         raise HTTPException(status_code=422, detail="Order signature is invalid.")
     order = payload.model_dump()
     order["symbol"] = order["symbol"].upper()
     order["price"] = round(order["price"], 2)
     try:
-        with connect_db() as connection:
-            connection.execute(
-                """INSERT INTO orders
-                   (order_id, user_id, side, symbol, quantity, price, created_at, public_key, signature)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    order["orderId"], user["id"], order["side"], order["symbol"], order["quantity"],
-                    order["price"], order["createdAt"], json.dumps(order["publicKey"]), order["signature"],
-                ),
-            )
-    except sqlite3.IntegrityError as error:
-        if "orders.order_id" in str(error):
-            raise HTTPException(status_code=409, detail="An order with this ID already exists.") from error
-        raise
+        saved_order = {**order, "publicKey": payload.publicKey.model_dump(), "user_id": user["_id"]}
+        get_database().orders.insert_one({"_id": order["orderId"], **saved_order})
+    except DuplicateKeyError as error:
+        raise HTTPException(status_code=409, detail="An order with this ID already exists.") from error
     record_event(
-        user["id"],
+        user["_id"],
         order["orderId"],
         "Order created",
         f'{order["side"]} {order["quantity"]} {order["symbol"]} at ${order["price"]:.2f}; digitally signed.',
@@ -309,32 +353,26 @@ def create_order(payload: OrderRequest, user: Annotated[sqlite3.Row, Depends(aut
 
 
 @app.patch("/api/orders/{order_id}/simulate-change")
-def simulate_order_change(order_id: str, user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> dict:
-    with connect_db() as connection:
-        order = connection.execute(
-            "SELECT * FROM orders WHERE order_id = ? AND user_id = ?", (order_id, user["id"])
-        ).fetchone()
-        if order is None:
-            raise HTTPException(status_code=404, detail="Order not found.")
-        changed_price = round(order["price"] + 1, 2)
-        connection.execute("UPDATE orders SET price = ? WHERE order_id = ?", (changed_price, order_id))
-    record_event(user["id"], order_id, "Order record changed", "Changed the saved price without updating its signature.")
-    with connect_db() as connection:
-        changed = connection.execute("SELECT * FROM orders WHERE order_id = ?", (order_id,)).fetchone()
+def simulate_order_change(order_id: str, user: Annotated[dict, Depends(authenticated_user)]) -> dict:
+    db = get_database()
+    order = db.orders.find_one({"_id": order_id, "user_id": user["_id"]})
+    if order is None:
+        raise HTTPException(status_code=404, detail="Order not found.")
+    changed_price = round(order["price"] + 1, 2)
+    db.orders.update_one({"_id": order_id}, {"$set": {"price": changed_price}})
+    record_event(user["_id"], order_id, "Order record changed", "Changed the saved price without updating its signature.")
+    changed = db.orders.find_one({"_id": order_id, "user_id": user["_id"]})
     return serialize_order(changed)
 
 
 @app.post("/api/orders/{order_id}/verify")
-def verify_saved_order(order_id: str, user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> dict:
-    with connect_db() as connection:
-        order = connection.execute(
-            "SELECT * FROM orders WHERE order_id = ? AND user_id = ?", (order_id, user["id"])
-        ).fetchone()
+def verify_saved_order(order_id: str, user: Annotated[dict, Depends(authenticated_user)]) -> dict:
+    order = get_database().orders.find_one({"_id": order_id, "user_id": user["_id"]})
     if order is None:
         raise HTTPException(status_code=404, detail="Order not found.")
     valid = verify_signature(order)
     record_event(
-        user["id"],
+        user["_id"],
         order_id,
         "Signature checked",
         "Signature verification passed." if valid else "Signature verification failed.",
@@ -343,18 +381,15 @@ def verify_saved_order(order_id: str, user: Annotated[sqlite3.Row, Depends(authe
 
 
 @app.get("/api/events")
-def list_events(user: Annotated[sqlite3.Row, Depends(authenticated_user)]) -> list[dict]:
-    with connect_db() as connection:
-        rows = connection.execute(
-            "SELECT * FROM events WHERE user_id = ? ORDER BY created_at DESC LIMIT 100", (user["id"],)
-        ).fetchall()
+def list_events(user: Annotated[dict, Depends(authenticated_user)]) -> list[dict]:
+    rows = get_database().events.find({"user_id": user["_id"]}).sort("createdAt", -1).limit(100)
     return [
         {
-            "eventId": row["event_id"],
-            "orderId": row["order_id"],
+            "eventId": row["eventId"],
+            "orderId": row["orderId"],
             "type": row["type"],
             "details": row["details"],
-            "createdAt": row["created_at"],
+            "createdAt": row["createdAt"],
         }
         for row in rows
     ]
