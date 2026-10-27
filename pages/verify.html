@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Verify the digital signature on a stock order record.">
   <title>Verify Order | TradeGuard</title>
-  <link rel="stylesheet" href="../assets/css/styles.css">
+  <link rel="stylesheet" href="../assets/css/styles.css?v=2">
   <script src="../assets/js/app.js" defer></script>
 </head>
 <body data-page="verify">
@@ -26,7 +26,7 @@
     <header class="page-title">
       <p class="eyebrow">Signature check</p>
       <h1>Verify an order</h1>
-      <p>Enter an order ID to check its signature against the signed order fields and stored public key.</p>
+      <p>Enter an order ID to have the backend check its signature against the signed order fields and stored public key.</p>
     </header>
     <section class="panel form-panel" aria-labelledby="verify-heading">
       <h2 id="verify-heading">Check order signature</h2>
@@ -45,7 +45,7 @@
         <li><strong>Valid:</strong> the order fields match the data covered by the signature.</li>
         <li><strong>Invalid:</strong> the signed fields changed, the signature is wrong, or the public key does not match.</li>
       </ul>
-      <p>Verification checks whether the signed fields match the saved record. It does not authenticate the person who created the key or protect records stored in this browser.</p>
+      <p>Verification checks whether the signed fields match the saved record. It does not authenticate the person who created the key. Sign in to verify orders saved to your account.</p>
       <a href="orders.html">Return to orders and events</a>
     </section>
   </main>

@@ -1,0 +1,5 @@
+__pycache__/
+*.py[cod]
+backend/tradeguard.sqlite3
+backend/tradeguard.sqlite3-shm
+backend/tradeguard.sqlite3-wal
