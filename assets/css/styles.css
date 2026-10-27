@@ -434,7 +434,7 @@ figcaption,
   margin-top: 0.25rem;
 }
 
-.registration-next[hidden] {
+.button[hidden] {
   display: none;
 }
 

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="TradeGuard order integrity workspace for signing and verifying stock order records.">
   <title>TradeGuard | Order Integrity</title>
-  <link rel="stylesheet" href="assets/css/styles.css">
+  <link rel="stylesheet" href="assets/css/styles.css?v=2">
   <script src="assets/js/app.js" defer></script>
 </head>
 <body data-page="home">
@@ -48,8 +48,8 @@
       </div>
       <ol class="step-list">
         <li><span class="step-number">01</span><h3>Create</h3><p>Enter a buy or sell order record with a stock symbol, quantity, and price.</p></li>
-        <li><span class="step-number">02</span><h3>Sign</h3><p>The browser signs a consistent version of the order using RSA-PSS and SHA-256.</p></li>
-        <li><span class="step-number">03</span><h3>Verify</h3><p>Check the signature later. Changing signed order details makes verification fail.</p></li>
+        <li><span class="step-number">02</span><h3>Sign</h3><p>The browser signs a consistent version of the order using RSA-PSS and SHA-256; the backend checks it before saving.</p></li>
+        <li><span class="step-number">03</span><h3>Verify</h3><p>The backend checks the signature later. Changing signed order details makes verification fail.</p></li>
       </ol>
     </section>
 

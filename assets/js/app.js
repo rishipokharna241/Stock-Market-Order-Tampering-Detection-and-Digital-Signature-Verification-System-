@@ -1,10 +1,34 @@
-const STORAGE_KEYS = {
-  users: "tradeguard-demo-users",
-  orders: "tradeguard-demo-orders",
-  events: "tradeguard-demo-events",
-};
-
 const encoder = new TextEncoder();
+const API_BASE = "/api";
+const SESSION_KEY = "tradeguard-session-token";
+
+function getToken() {
+  return sessionStorage.getItem(SESSION_KEY);
+}
+
+async function apiRequest(path, options = {}) {
+  const headers = new Headers(options.headers || {});
+  if (options.body) headers.set("Content-Type", "application/json");
+  const token = getToken();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await fetch(`${API_BASE}${path}`, { ...options, headers });
+  if (response.status === 204) return null;
+  const payload = await response.json();
+  if (!response.ok) {
+    const detail = typeof payload.detail === "string" ? payload.detail : "The backend request failed.";
+    throw new Error(detail);
+  }
+  return payload;
+}
+
+function setSession(token) {
+  sessionStorage.setItem(SESSION_KEY, token);
+}
+
+function clearSession() {
+  sessionStorage.removeItem(SESSION_KEY);
+}
 
 function showMessage(message, kind = "info") {
   const element = document.querySelector("#app-message");
@@ -14,40 +38,6 @@ function showMessage(message, kind = "info") {
   window.setTimeout(() => {
     if (element.textContent === message) element.textContent = "";
   }, 6000);
-}
-
-function readStore(key) {
-  const stored = localStorage.getItem(key);
-  if (stored === null) return [];
-  const parsed = JSON.parse(stored);
-  if (!Array.isArray(parsed)) {
-    throw new Error(`Saved data for "${key}" is not in the expected format.`);
-  }
-  return parsed;
-}
-
-function writeStore(key, value) {
-  localStorage.setItem(key, JSON.stringify(value));
-}
-
-function getOrders() {
-  return readStore(STORAGE_KEYS.orders);
-}
-
-function getEvents() {
-  return readStore(STORAGE_KEYS.events);
-}
-
-function saveEvent(orderId, type, details) {
-  const events = getEvents();
-  events.unshift({
-    eventId: window.crypto.randomUUID(),
-    orderId,
-    type,
-    details,
-    createdAt: new Date().toISOString(),
-  });
-  writeStore(STORAGE_KEYS.events, events);
 }
 
 function canonicalOrder(order) {
@@ -152,7 +142,7 @@ async function renderOrders() {
   const body = document.querySelector("#orders-table-body");
   if (!body) return;
 
-  const orders = getOrders();
+  const orders = await apiRequest("/orders");
   if (orders.length === 0) {
     body.innerHTML = '<tr><td colspan="8">No orders yet. Create one using the form above.</td></tr>';
   } else {
@@ -181,7 +171,7 @@ async function renderOrders() {
 async function renderEvents() {
   const body = document.querySelector("#events-table-body");
   if (!body) return;
-  const events = getEvents();
+  const events = await apiRequest("/events");
   if (events.length === 0) {
     body.innerHTML = '<tr><td colspan="4">No events yet. Create or verify an order to add events.</td></tr>';
     return;
@@ -198,7 +188,23 @@ function initializeRegistration() {
   const form = document.querySelector("#registration-form");
   if (!form) return;
   const nextLink = document.querySelector("#registration-next");
-  form.addEventListener("submit", (event) => {
+  const accountStatus = document.querySelector("#account-status");
+  const logoutButton = document.querySelector("#logout-button");
+  const loginForm = document.querySelector("#login-form");
+
+  const showSignedInUser = async () => {
+    if (!getToken()) return;
+    try {
+      const { user } = await apiRequest("/auth/me");
+      accountStatus.textContent = `Signed in as ${user.fullName} (${user.email}).`;
+      logoutButton.hidden = false;
+    } catch (error) {
+      clearSession();
+      accountStatus.textContent = error.message;
+    }
+  };
+
+  form.addEventListener("submit", async (event) => {
     event.preventDefault();
     const error = document.querySelector("#registration-error");
     const success = document.querySelector("#registration-success");
@@ -211,21 +217,66 @@ function initializeRegistration() {
     const fullName = String(formData.get("fullName")).trim();
     const email = String(formData.get("email")).trim().toLowerCase();
     try {
-      const users = readStore(STORAGE_KEYS.users);
-      if (users.some((user) => user.email === email)) {
-        error.textContent = "A profile with this email already exists on this device.";
-        return;
-      }
-      users.push({ fullName, email, registeredAt: new Date().toISOString() });
-      writeStore(STORAGE_KEYS.users, users);
-    } catch (storageError) {
-      error.textContent = `Could not save your profile: ${storageError.message}`;
+      const response = await apiRequest("/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          fullName,
+          email,
+          password: String(formData.get("password")),
+        }),
+      });
+      setSession(response.token);
+      form.reset();
+      success.textContent = `Your account is ready, ${response.user.fullName}.`;
+      nextLink.hidden = false;
+      accountStatus.textContent = `Signed in as ${response.user.fullName} (${response.user.email}).`;
+      logoutButton.hidden = false;
+    } catch (requestError) {
+      error.textContent = `Could not create your account: ${requestError.message}`;
       return;
     }
-    form.reset();
-    success.textContent = `Your profile is ready, ${fullName}.`;
-    nextLink.hidden = false;
   });
+
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const error = document.querySelector("#login-error");
+    error.textContent = "";
+    if (!loginForm.reportValidity()) return;
+    const formData = new FormData(loginForm);
+    try {
+      const response = await apiRequest("/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: String(formData.get("email")).trim().toLowerCase(),
+          password: String(formData.get("password")),
+        }),
+      });
+      setSession(response.token);
+      loginForm.reset();
+      accountStatus.textContent = `Signed in as ${response.user.fullName} (${response.user.email}).`;
+      logoutButton.hidden = false;
+      nextLink.hidden = false;
+    } catch (requestError) {
+      error.textContent = `Could not sign in: ${requestError.message}`;
+    }
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    try {
+      await apiRequest("/auth/logout", { method: "POST" });
+      clearSession();
+      logoutButton.hidden = true;
+      nextLink.hidden = true;
+      accountStatus.textContent = "You are signed out.";
+    } catch (error) {
+      clearSession();
+      logoutButton.hidden = true;
+      nextLink.hidden = true;
+      accountStatus.textContent = "You are signed out in this browser.";
+      showMessage(`The backend could not revoke the session: ${error.message}`, "error");
+    }
+  });
+  showSignedInUser();
 }
 
 function initializeOrders() {
@@ -240,18 +291,18 @@ function initializeOrders() {
     submitButton.disabled = true;
     submitButton.textContent = "Signing order…";
     try {
-      const order = await createSignedOrder({
+      const signedOrder = await createSignedOrder({
         side: String(formData.get("side")),
         symbol: String(formData.get("symbol")).trim(),
         quantity: formData.get("quantity"),
         price: formData.get("price"),
       });
-      const orders = getOrders();
-      orders.unshift(order);
-      writeStore(STORAGE_KEYS.orders, orders);
-      saveEvent(order.orderId, "Order created", `${order.side} ${order.quantity} ${order.symbol} at $${order.price.toFixed(2)}; digitally signed.`);
+      const order = await apiRequest("/orders", {
+        method: "POST",
+        body: JSON.stringify(signedOrder),
+      });
       form.reset();
-      showMessage(`Order ${order.orderId} signed and saved.`, "success");
+      showMessage(`Order ${order.orderId} signed and saved by the backend.`, "success");
       await renderOrders();
     } catch (error) {
       showMessage(`Could not create the signed order: ${error.message}`, "error");
@@ -265,12 +316,9 @@ function initializeOrders() {
     const button = event.target.closest("[data-tamper-order]");
     if (!button) return;
     try {
-      const orders = getOrders();
-      const order = orders.find((item) => item.orderId === button.dataset.tamperOrder);
-      if (!order) throw new Error("The selected order could not be found.");
-      order.price = Number((Number(order.price) + 1).toFixed(2));
-      writeStore(STORAGE_KEYS.orders, orders);
-      saveEvent(order.orderId, "Order record changed", "Changed the saved price without updating its signature.");
+      await apiRequest(`/orders/${encodeURIComponent(button.dataset.tamperOrder)}/simulate-change`, {
+        method: "PATCH",
+      });
       showMessage("Order price changed. Its signature is now invalid.", "error");
       await renderOrders();
     } catch (error) {
@@ -303,14 +351,8 @@ function initializeVerification() {
     if (!form.reportValidity()) return;
     const orderId = orderIdInput.value.trim();
     try {
-      const order = getOrders().find((item) => item.orderId === orderId);
-      if (!order) {
-        result.innerHTML = '<section class="result-card invalid"><h3>Order not found</h3><p>Check the ID or create an order first.</p></section>';
-        return;
-      }
-      const valid = await verifyOrder(order);
-      saveEvent(order.orderId, "Signature checked", valid ? "Signature verification passed." : "Signature verification failed.");
-      showVerificationResult(result, valid, order.orderId);
+      const verification = await apiRequest(`/orders/${encodeURIComponent(orderId)}/verify`, { method: "POST" });
+      showVerificationResult(result, verification.valid, verification.orderId);
     } catch (error) {
       showMessage(`Could not verify the order: ${error.message}`, "error");
     }
@@ -318,16 +360,9 @@ function initializeVerification() {
 }
 
 function initialize() {
-  try {
-    readStore(STORAGE_KEYS.users);
-    readStore(STORAGE_KEYS.orders);
-    readStore(STORAGE_KEYS.events);
-    initializeRegistration();
-    initializeOrders();
-    initializeVerification();
-  } catch (error) {
-    showMessage(`Saved workspace data could not be read: ${error.message}`, "error");
-  }
+  initializeRegistration();
+  initializeOrders();
+  initializeVerification();
 }
 
 document.addEventListener("DOMContentLoaded", initialize);

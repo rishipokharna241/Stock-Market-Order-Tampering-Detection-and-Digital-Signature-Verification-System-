@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Create signed stock order records and review order activity.">
   <title>Order Workspace | TradeGuard</title>
-  <link rel="stylesheet" href="../assets/css/styles.css">
+  <link rel="stylesheet" href="../assets/css/styles.css?v=2">
   <script src="../assets/js/app.js" defer></script>
 </head>
 <body data-page="orders">
@@ -26,7 +26,7 @@
     <header class="page-title">
       <p class="eyebrow">Order workspace</p>
       <h1>Create and inspect orders</h1>
-      <p>Create and review signed order records. Records are stored in this browser and are not sent to a broker.</p>
+      <p>Create and review signed order records. Sign in first; records are saved by the backend and are not sent to a broker.</p>
     </header>
     <section class="panel form-panel" aria-labelledby="create-order-heading">
       <h2 id="create-order-heading">Place an order record</h2>
@@ -60,7 +60,7 @@
 
     <section class="section-block" aria-labelledby="orders-heading">
       <div class="section-heading">
-        <p class="eyebrow">Saved in this browser</p>
+        <p class="eyebrow">Saved by the backend</p>
         <h2 id="orders-heading">Order list</h2>
         <p>Verify an order signature or simulate an unauthorized change to confirm that verification detects it.</p>
       </div>
@@ -86,7 +86,7 @@
           <tbody id="events-table-body"><tr><td colspan="4">Loading events…</td></tr></tbody>
         </table>
       </div>
-      <p class="helper-text">Activity is stored in this browser and is not an independently trusted audit log.</p>
+      <p class="helper-text">Activity is stored in the backend database, but is not an independently trusted audit log.</p>
     </section>
   </main>
   <footer class="site-footer">

@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="description" content="Create a profile for your TradeGuard order integrity workspace.">
   <title>Create Profile | TradeGuard</title>
-  <link rel="stylesheet" href="../assets/css/styles.css">
+  <link rel="stylesheet" href="../assets/css/styles.css?v=2">
   <script src="../assets/js/app.js" defer></script>
 </head>
 <body class="registration-page" data-page="register">
@@ -40,7 +40,12 @@
           <div class="form-field">
             <label for="email">Email address</label>
             <input id="email" name="email" type="email" autocomplete="email" maxlength="120" aria-describedby="email-hint" required>
-            <small id="email-hint">Your email identifies your profile on this device.</small>
+            <small id="email-hint">Your email identifies your account.</small>
+          </div>
+          <div class="form-field">
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="new-password" minlength="8" maxlength="128" aria-describedby="password-hint" required>
+            <small id="password-hint">Use at least 8 characters.</small>
           </div>
         </div>
         <p class="form-error" id="registration-error" aria-live="polite"></p>
@@ -48,7 +53,26 @@
       </form>
       <p class="form-success" id="registration-success" aria-live="polite"></p>
       <a class="button button-secondary registration-next" id="registration-next" href="orders.html" hidden>Continue to order workspace</a>
-      <p class="helper-text registration-note">Profiles are saved in this browser only. Password sign-in and cloud account services are not enabled.</p>
+      <p class="helper-text" id="account-status" aria-live="polite"></p>
+      <button class="button button-secondary" id="logout-button" type="button" hidden>Sign out</button>
+      <p class="helper-text registration-note">Accounts and workspace records are stored by the local TradeGuard backend. Use a unique password; this demo is not designed for sensitive accounts.</p>
+    </section>
+    <section class="panel form-panel" aria-labelledby="login-heading">
+      <h2 id="login-heading">Already have an account?</h2>
+      <form id="login-form">
+        <div class="form-grid">
+          <div class="form-field">
+            <label for="login-email">Email address</label>
+            <input id="login-email" name="email" type="email" autocomplete="username" maxlength="120" required>
+          </div>
+          <div class="form-field">
+            <label for="login-password">Password</label>
+            <input id="login-password" name="password" type="password" autocomplete="current-password" minlength="8" maxlength="128" required>
+          </div>
+        </div>
+        <p class="form-error" id="login-error" aria-live="polite"></p>
+        <button class="button button-primary" type="submit">Sign in</button>
+      </form>
     </section>
   </main>
   <footer class="site-footer">
