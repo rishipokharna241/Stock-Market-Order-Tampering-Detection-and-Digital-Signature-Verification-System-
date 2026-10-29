@@ -1,0 +1,1 @@
+window.TRADEGUARD_API_BASE = "";

@@ -13,7 +13,27 @@ py -m uvicorn backend.main:app --reload
 
 Open <http://localhost:8000> in a modern browser. The FastAPI app serves both the frontend and `/api` endpoints. If `py` is not available, use `python` instead. Set `TRADEGUARD_DB` to change the SQLite database location.
 
-GitHub Pages only serves static files and cannot run this FastAPI backend. To use the authenticated backend online, deploy the FastAPI app and SQLite storage on a Python host and configure the frontend to call that API, including the required cross-origin settings. The current GitHub Pages site remains the previously deployed static version until such a backend is deployed.
+Static hosts such as S3 only serve the frontend; they cannot run this FastAPI backend. The backend can run as an AWS Lambda function exposed through a Lambda Function URL. Keep in mind that S3's static website endpoint is HTTP-only, while this app's digital signatures require a secure browser context. Without CloudFront, open the HTTPS S3 object URL for `index.html` (for example, `https://BUCKET.s3.REGION.amazonaws.com/index.html`), not the S3 website endpoint. The bucket must allow public reads of the frontend files.
+
+### AWS S3 + Lambda Function URL
+
+1. In `assets/js/config.js`, set `window.TRADEGUARD_API_BASE` to the Lambda Function URL origin, for example `https://abc123.lambda-url.us-east-1.on.aws` (no trailing slash and no `/api` suffix).
+2. Package the project and its Python dependencies for Lambda. From the project root, install requirements into a staging directory and zip that directory together with the project files. Include `backend/`, `assets/`, `pages/`, and `index.html` in the deployment package:
+
+   ```bash
+   mkdir -p package
+   python3 -m pip install -r requirements.txt --target package
+   cp -r backend assets pages index.html package/
+   cd package && zip -r ../tradeguard-lambda.zip . && cd ..
+   ```
+
+   Use a Linux-compatible Python environment matching the Lambda runtime when building dependencies. Configure the Lambda handler as `backend.lambda_handler.handler`.
+3. Configure the Lambda Function URL with **Auth type: NONE** for this public browser demo. The API uses its own account login/session authentication; do not put real financial or sensitive data in this demo.
+4. Set the Lambda environment variable `TRADEGUARD_ALLOWED_ORIGINS` to the exact HTTPS S3 object origin, such as `https://BUCKET.s3.REGION.amazonaws.com` (origin only, without `/index.html`). The FastAPI app handles CORS; leave the Function URL's separate CORS configuration disabled to avoid duplicate CORS headers.
+5. Set `TRADEGUARD_DB` to a writable path. For a quick test, `/tmp/tradeguard.sqlite3` works, but Lambda storage is temporary and data can disappear or differ between execution environments. For persistent SQLite, mount EFS and set the path to a database file on that mount, ensuring the Lambda role, mount target, and file permissions allow writes. EFS-backed SQLite is suitable only for low-concurrency demo use; a production deployment should use a managed database.
+6. Upload the frontend files (`index.html`, `pages/`, and `assets/`) to the S3 bucket. Use the HTTPS S3 object URL to open `index.html`. Test `https://YOUR_FUNCTION_URL_ID.lambda-url.REGION.on.aws/api/health`, then test registration in the browser. If you update `config.js`, upload it again and reload the page without cache.
+
+The default `TRADEGUARD_ALLOWED_ORIGINS` is empty, which is suitable for the local same-origin setup. For AWS, the API only permits browser requests from the exact origin listed in that variable.
 
 ## Pages and files
 
@@ -26,8 +46,10 @@ pages/
 assets/
   css/styles.css            Shared layout, box model, Flexbox, and responsive styles
   js/app.js                 Form handling, API requests, signatures, and DOM updates
+  js/config.js              API origin for a separately hosted backend
   images/market-chart.svg   Local illustration used by the pages
 backend/main.py             FastAPI endpoints, authentication, and SQLite persistence
+backend/lambda_handler.py   AWS Lambda adapter for the FastAPI application
 requirements.txt            Python backend dependencies
 ```
 

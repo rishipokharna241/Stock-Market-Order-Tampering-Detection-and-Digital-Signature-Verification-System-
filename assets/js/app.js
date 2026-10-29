@@ -1,5 +1,6 @@
 const encoder = new TextEncoder();
-const API_BASE = "/api";
+const API_ORIGIN = (window.TRADEGUARD_API_BASE || "").replace(/\/+$/, "");
+const API_BASE = `${API_ORIGIN}/api`;
 const SESSION_KEY = "tradeguard-session-token";
 
 function getToken() {

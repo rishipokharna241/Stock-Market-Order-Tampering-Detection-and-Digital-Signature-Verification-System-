@@ -14,6 +14,7 @@ from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
 from fastapi import Depends, FastAPI, Header, HTTPException, status
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -106,6 +107,17 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="TradeGuard API", version="1.0.0", lifespan=lifespan)
+allowed_origins = [
+    origin.strip().rstrip("/")
+    for origin in os.environ.get("TRADEGUARD_ALLOWED_ORIGINS", "").split(",")
+    if origin.strip()
+]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=allowed_origins,
+    allow_methods=["*"],
+    allow_headers=["Authorization", "Content-Type"],
+)
 
 
 def utc_now() -> str:
